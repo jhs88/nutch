@@ -1,116 +1,82 @@
-# Licensed to the Apache Software Foundation (ASF) under one or more
-# contributor license agreements.  See the NOTICE file distributed with
-# this work for additional information regarding copyright ownership.
-# The ASF licenses this file to You under the Apache License, Version 2.0
-# (the "License"); you may not use this file except in compliance with
-# the License.  You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+ARG BUILD_WEBAPP=0
+ARG INCLUDE_SRC=0
+# Must be `11` if BUILD_WEBAPP is `1`
+ARG JAVA_VERSION=11
 
-# NOTE TO DEVELOPERS: Make sure this file passes linting tests
-# by running https://github.com/replicatedhq/dockerfilelint
 
-# BUILD_MODE can be either
-#  0 == Nutch master branch source install with 'crawl' and 'nutch' scripts on PATH
-#  1 == Same as mode 0 with addition of Nutch REST Server
-#  2 == Same as mode 1 with addition of Nutch WebApp
-ARG BUILD_MODE=0
+FROM eclipse-temurin:${JAVA_VERSION}-jdk-jammy AS build
+ARG BUILD_WEBAPP
+ARG NUTCH_SRC_REPO="https://github.com/apache/nutch.git"
+WORKDIR /opt
+RUN set -ex; \
+    if [ "${BUILD_WEBAPP}" -eq "0" ]; then exit 0; fi; \
+    apt-get update; \
+    apt-get install --no-install-recommends --no-upgrade -y git maven; \
+    apt-get autoremove -y; \
+    git clone https://github.com/apache/nutch-webapp.git nutch_webapp; \
+    cd nutch_webapp; \
+    sed -i 's|<wtp.version>.*</wtp.version>|<wtp.version>2.0</wtp.version>|I' pom.xml; \
+    mvn clean install -DskipTests && mvn package;
+RUN set -ex; \
+    apt-get update; \
+    apt-get install --no-install-recommends --no-upgrade -y git ant; \
+    apt-get autoremove -y; \
+    git clone ${NUTCH_SRC_REPO} nutch_source; \
+    cd nutch_source; \
+    ant runtime; \
+    cp -r runtime /opt/nutch_runtime; \
+    rm -rf build/ runtime/ /root/.ivy2/;
 
-FROM alpine:3.19 AS base
 
+FROM eclipse-temurin:${JAVA_VERSION}-jre-jammy AS base-0
 ARG SERVER_PORT=8081
 ARG SERVER_HOST=0.0.0.0
-ARG WEBAPP_PORT=8080
+ARG CP_NUTCH_RUNTIME="./runtime/local"
+ENV VERBOSE="" \
+    SERVER_PORT=${SERVER_PORT} \
+    SERVER_HOST=${SERVER_HOST} \
+    NUTCH_USER="nutch" \
+    NUTCH_GROUP="nutch" \
+    NUTCH_GID="8081" \
+    NUTCH_UID="8081" \
+    NUTCH_HOME=/opt/nutch/runtime/local \
+    # NUTCH_LOG_DIR=$NUTCH_HOME/logs \
+    # NUTCH_LOGFILE=hadoop.log \
+    PATH=/opt/nutch/runtime/local/bin:/opt/nutch/runtime/local/docker/scripts:$PATH
+RUN set -ex; \
+    groupadd -r --gid ${NUTCH_GID} ${NUTCH_GROUP}; \
+    useradd -r --uid ${NUTCH_UID} --gid ${NUTCH_GID} ${NUTCH_USER}; \
+    mkdir -p -m0770 ${NUTCH_HOME}/crawl; \
+    chown -R ${NUTCH_USER}:0 /opt/nutch; \
+    chown -R ${NUTCH_USER}:${NUTCH_USER} ${NUTCH_HOME};
+VOLUME ${NUTCH_HOME}/crawl
+EXPOSE ${SERVER_PORT}
+WORKDIR ${NUTCH_HOME}
+ENTRYPOINT ["docker-entrypoint.sh"]
+CMD ["nutch-foreground"]
 
-LABEL maintainer="Apache Nutch Developers <dev@nutch.apache.org>"
-LABEL org.opencontainers.image.authors="Apache Nutch Developers <dev@nutch.apache.org>"
-LABEL org.opencontainers.image.description="Docker image for running Apache Nutch, a highly extensible and scalable open source web crawler software project. Visit the project website at https://nutch.apache.org"
-LABEL org.opencontainers.image.documentation="https://hub.docker.com/r/apache/nutch"
-LABEL org.opencontainers.image.licenses="Apache-2.0"
-LABEL org.opencontainers.image.source="https://raw.githubusercontent.com/apache/nutch/master/docker/Dockerfile"
-LABEL org.opencontainers.image.title="Apache Nutch 1.x Docker Image"
-LABEL org.opencontainers.image.url="https://hub.docker.com/r/apache/nutch"
-LABEL org.opencontainers.image.vendor="Apache Nutch https://nutch.apache.org"
 
-WORKDIR /root/
+FROM base-0 AS base-1
+ARG BUILD_WEBAPP
+ENV WEBAPP_PORT=8080
+RUN set -ex; \
+    if [ "$BUILD_WEBAPP" -eq "0" ]; then exit 0; fi; \
+    apt-get update && apt-get install --no-install-recommends --no-upgrade -y maven && apt-get autoremove -y;
+COPY --chown=${NUTCH_USER}:0 --from=build /opt/nutch_webapp /opt/nutch_webapp
+COPY --chown=${NUTCH_USER}:${NUTCH_USER} --from=build /root/.m2 /home/${NUTCH_USER}/.m2
+EXPOSE ${WEBAPP_PORT}
+CMD ["start-nutch-webapp"]
 
-# Install dependencies
-RUN apk update
-RUN apk --no-cache add apache-ant bash git openjdk11 supervisor
 
-# Establish environment variables
-RUN echo 'export JAVA_HOME=/usr/lib/jvm/java-11-openjdk' >> $HOME/.bashrc
-RUN echo 'export JAVA_HOME=/usr/lib/jvm/java-11-openjdk' >> $HOME/.ashrc
-ENV JAVA_HOME='/usr/lib/jvm/java-11-openjdk'
-ENV NUTCH_HOME='/root/nutch_source/runtime/local'
+FROM base-${BUILD_WEBAPP} AS runtime-0
+COPY --chown=${NUTCH_USER}:${NUTCH_USER} --from=build /opt/nutch_runtime/local ${NUTCH_HOME}
+COPY --chown=${NUTCH_USER}:0 ${CP_NUTCH_RUNTIME} ${NUTCH_HOME}
+COPY --chown=${NUTCH_USER}:0 --chmod=555 ./docker/scripts ${NUTCH_HOME}/docker/scripts
+USER $NUTCH_UID
 
-# Checkout and build the Nutch master branch (1.x)
-RUN git clone https://github.com/apache/nutch.git nutch_source && \
-     cd nutch_source && \
-     ant runtime && \
-     rm -rf build/ && \
-     rm -rf /root/.ivy2/
 
-# Create symlinks for runtime/local/bin/nutch and runtime/local/bin/crawl
-RUN ln -sf $NUTCH_HOME/bin/nutch /usr/local/bin/
-RUN ln -sf $NUTCH_HOME/bin/crawl /usr/local/bin/
+FROM runtime-0 AS runtime-1
+COPY --chown=${NUTCH_USER}:0 --from=build /opt/nutch_source /opt/nutch
 
-FROM base AS branch-version-0
 
-RUN echo "Nutch master branch source install with 'crawl' and 'nutch' scripts on PATH"
-
-FROM base AS branch-version-1
-
-RUN echo "Nutch master branch source install with 'crawl' and 'nutch' scripts on PATH and Nutch REST Server on $SERVER_HOST:$SERVER_PORT"
-ARG SERVER_PORT=8081
-ARG SERVER_HOST=0.0.0.0
-
-ENV SERVER_PORT=$SERVER_PORT
-ENV SERVER_HOST=$SERVER_HOST
-
-# Arrange necessary setup for supervisord
-RUN mkdir -p /var/log/supervisord
-COPY ./config/supervisord_startserver.conf /etc/supervisord.conf
-
-# Expose port for server which can only be accessed if 
-# the same port is published when the container is run.
-EXPOSE $SERVER_PORT
-
-ENTRYPOINT [ "supervisord", "--nodaemon", "--configuration", "/etc/supervisord.conf" ]
-
-FROM base AS branch-version-2
-
-RUN echo "Nutch master branch source install with 'crawl' and 'nutch' scripts on PATH, Nutch REST Server on $SERVER_HOST:$SERVER_PORT and WebApp on this container port $WEBAPP_PORT"
-ARG SERVER_PORT=8081
-ARG SERVER_HOST=0.0.0.0
-ARG WEBAPP_PORT=8080
-
-ENV SERVER_PORT=$SERVER_PORT
-ENV SERVER_HOST=$SERVER_HOST
-ENV WEBAPP_PORT=$WEBAPP_PORT
-
-# Install the webapp
-RUN apk --no-cache add maven
-RUN git clone https://github.com/apache/nutch-webapp.git nutch_webapp && \
-     cd nutch_webapp && \
-     mvn package
-
-# Arrange necessary setup for supervisord
-RUN mkdir -p /var/log/supervisord
-COPY ./config/supervisord_startserver_webapp.conf /etc/supervisord.conf
-
-# Expose ports for server and webapp, these can only be accessed if 
-# the same ports are published when the container is run.
-EXPOSE $SERVER_PORT
-EXPOSE $WEBAPP_PORT
-
-ENTRYPOINT [ "supervisord", "--nodaemon", "--configuration", "/etc/supervisord.conf" ]
-
-FROM branch-version-$BUILD_MODE AS final
-RUN echo "Successfully built image, see https://s.apache.org/m5933 for guidance on running a container instance."
+FROM runtime-${INCLUDE_SRC} AS final
