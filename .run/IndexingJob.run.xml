@@ -1,0 +1,14 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="IndexingJob" type="Application" factoryName="Application">
+    <classpathModifications>
+      <entry path="$PROJECT_DIR$/runtime/local/conf" />
+    </classpathModifications>
+    <option name="MAIN_CLASS_NAME" value="org.apache.nutch.indexer.IndexingJob" />
+    <module name="nutch" />
+    <option name="VM_PARAMETERS" value="-Xmx2048m" />
+    <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/runtime/local" />
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>

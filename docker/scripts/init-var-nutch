@@ -1,0 +1,49 @@
+#!/bin/bash
+set -e
+
+if [[ "$VERBOSE" == "yes" ]]; then
+    set -x
+fi
+
+if [[ -n "${NO_INIT_VAR_NUTCH:-}" ]]; then
+    exit 0
+fi
+
+DIR=${1:-/opt/nutch/runtime/local}
+
+if [ ! -d "$DIR" ]; then
+    echo "Missing $DIR"
+    exit 1
+fi
+
+function check_dir_writability {
+    local dir="$1"
+    if [ ! -w "$dir" ]; then
+        echo "Cannot write to $dir as $(id -u):$(id -g)"
+        ls -ld "$dir"
+        exit 1
+    fi
+}
+
+if [ ! -d "$DIR/urls" ]; then
+    # echo "Creating $DIR/urls"
+    check_dir_writability "$DIR"
+    mkdir -m0770 "$DIR/urls"
+fi
+
+if [ ! -d "$DIR/crawl" ]; then
+    # echo "Creating $DIR/crawl"
+    check_dir_writability "$DIR"
+    mkdir -m0770 "$DIR/crawl"
+fi
+
+if [ ! -d "$DIR/logs" ]; then
+    # echo "Creating $DIR/logs"
+    check_dir_writability "$DIR"
+    mkdir -m0770 "$DIR/logs"
+fi
+
+# if [ ! -f "$DIR/log4j2.xml" ]; then
+#     #echo "Copying log4j2.xml"
+#     cp -a /opt/nutch/conf/log4j2.xml "$DIR/conf/log4j2.xml"
+# fi

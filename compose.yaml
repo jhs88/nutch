@@ -1,0 +1,25 @@
+services:
+  nutch:
+    build:
+      # args:
+      #   BUILD_WEBAPP: "1"
+      #   JAVA_VERSION: "11"
+      dockerfile: docker/Dockerfile
+    ports:
+      # - "8080:8080"
+      - "8081:8081"
+    network_mode: "host"
+    environment:
+      VERBOSE: ${VERBOSE}
+    volumes:
+      ## Seed URLs - (for initial crawl) ##
+      - ./docker/urls:/opt/nutch/runtime/local/urls
+      ## Custom scripts - run on container start ##
+      - ./docker/custom:/docker-entrypoint-initdb.d
+      ## Nutch data volume (for persisting data of crawled documents) ##
+      - nutch-data:/opt/nutch/runtime/local/crawl
+    # keep container running (for debugging)
+    # command: ["tail", "-f", "/opt/nutch/runtime/local/logs/hadoop.log"]
+
+volumes:
+  nutch-data:

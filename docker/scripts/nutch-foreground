@@ -1,0 +1,10 @@
+set -e
+
+if [[ "$VERBOSE" == "yes" ]]; then
+    set -x
+fi
+
+# Could set env-variables for nutch
+source run-initdb
+
+exec nutch startserver -port $SERVER_PORT -host $SERVER_HOST "$@"

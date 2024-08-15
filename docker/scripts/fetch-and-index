@@ -1,0 +1,51 @@
+#!/bin/bash
+set -e
+
+if [[ "$VERBOSE" == "yes" ]]; then
+    set -x
+fi
+
+# This script will perform the following steps:
+# 1) Generate new segments.
+# 2) Fetch the content for the latest segment.
+# 3) Parse the fetched content.
+# 4) Update the crawl database.
+# 5) Invert the links.
+# 6) Index the content to Solr.
+
+# Set the crawl path
+CRAWL_PATH=$NUTCH_HOME/crawl
+CRAWL_DB=$CRAWL_PATH/crawldb
+CRAWL_SEGMENTS=$CRAWL_PATH/segments
+CRAWL_LINKDB=$CRAWL_PATH/linkdb
+
+# seed urls
+nutch inject $CRAWL_DB $NUTCH_HOME/urls/seed.txt
+
+# Generate new segments
+nutch generate $CRAWL_DB $CRAWL_SEGMENTS -topN 1000
+
+# Get the latest segment
+segments=$(ls -d $CRAWL_SEGMENTS/2* | tail -1)
+echo -e $'\n'Latest segment: $segments$'\n'
+
+# Fetch the content
+nutch fetch $segments
+
+# Parse the fetched content
+nutch parse $segments
+
+# Update the crawl database
+nutch updatedb $CRAWL_DB $segments
+
+# Invert links
+nutch invertlinks $CRAWL_LINKDB -dir $CRAWL_SEGMENTS
+
+echo -e $'\n'Crawl completed.$'\n'Starting indexing to SOLR...$'\n'
+
+# Index the content to Solr
+nutch index $CRAWL_DB/ -dir $CRAWL_SEGMENTS/ -linkdb $CRAWL_LINKDB/ -filter -normalize -deleteGone
+
+echo -e $'\n'Indexing completed.$'\n'Successfully indexed the content to SOLR.$'\n\n'Exiting...
+
+exec "$@"

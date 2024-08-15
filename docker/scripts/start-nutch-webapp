@@ -1,0 +1,12 @@
+set -e
+
+if [[ "$VERBOSE" == "yes" ]]; then
+    set -x
+fi
+echo "Running nutch server in the background."
+nutch-foreground &
+
+cd /opt/nutch_webapp
+echo "Running nutch webapp in the background."
+
+mvn jetty:run -Djetty.port=$WEBAPP_PORT
