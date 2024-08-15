@@ -1,4 +1,5 @@
 ARG BUILD_WEBAPP=0
+ARG BUILD_SRC=0
 ARG INCLUDE_SRC=0
 # Must be `11` if BUILD_WEBAPP is `1`
 ARG JAVA_VERSION=11
@@ -6,6 +7,7 @@ ARG JAVA_VERSION=11
 
 FROM eclipse-temurin:${JAVA_VERSION}-jdk-jammy AS build
 ARG BUILD_WEBAPP
+ARG BUILD_SRC
 ARG NUTCH_SRC_REPO="https://github.com/apache/nutch.git"
 WORKDIR /opt
 RUN set -ex; \
@@ -18,6 +20,10 @@ RUN set -ex; \
     sed -i 's|<wtp.version>.*</wtp.version>|<wtp.version>2.0</wtp.version>|I' pom.xml; \
     mvn clean install -DskipTests && mvn package;
 RUN set -ex; \
+    if [ "${BUILD_SRC}" -eq "0" ]; then \
+    mkdir -p -m0770 /opt/nutch_source /opt/nutch_runtime/local; \
+    exit 0; \
+    fi; \
     apt-get update; \
     apt-get install --no-install-recommends --no-upgrade -y git ant; \
     apt-get autoremove -y; \
